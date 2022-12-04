@@ -20,6 +20,10 @@ class UblWriter extends AbstractWriter {
     const NS_INVOICE = "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2";
     const NS_CAC = "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2";
     const NS_CBC = "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2";
+    const NS_EXT = "urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2";
+    const NS_SIG="urn:oasis:names:specification:ubl:schema:xsd:CommonSignatureComponents-2";
+    const NS_SAC="urn:oasis:names:specification:ubl:schema:xsd:SignatureAggregateComponents-2";
+    const NS_SBC="urn:oasis:names:specification:ubl:schema:xsd:SignatureBasicComponents-2";
 
     /**
      * @inheritdoc
@@ -29,13 +33,26 @@ class UblWriter extends AbstractWriter {
         $xml = UXML::newInstance('Invoice', null, [
             'xmlns' => self::NS_INVOICE,
             'xmlns:cac' => self::NS_CAC,
-            'xmlns:cbc' => self::NS_CBC
+            'xmlns:cbc' => self::NS_CBC,
+            'xmlns:ext' => self::NS_EXT,
         ]);
 
         // BT-24: Specification identifier
         $specificationIdentifier = $invoice->getSpecification();
+        
         if ($specificationIdentifier !== null) {
-            $xml->add('cbc:CustomizationID', $specificationIdentifier);
+           $ublExtension= $xml->add('ext:UBLExtensions')->add('ext:UBLExtension');
+           $ublExtension->add('ext:ExtensionURI',"urn:oasis:names:specification:ubl:dsig:enveloped:xades");
+           $extContent=$ublExtension->add('ext:ExtensionContent');
+           $ublSignature=$extContent->add('sig:UBLDocumentSignatures',null,[
+            'xmlns:sig' => self::NS_SIG,
+            'xmlns:sac' => self::NS_SAC,
+            'xmlns:sbc' => self::NS_SBC,
+           ]);
+           $singatureInformation=$ublSignature->add('sac:SignatureInformation');
+           $singatureInformation->add('cbc:ID','urn:oasis:names:specification:ubl:signature:1');
+           $singatureInformation->add('sbc:ReferencedSignatureID','urn:oasis:names:specification:ubl:signature:Invoice');
+           $singature=$singatureInformation->add('ds:Signature',null,[ 'xmlns:ds'=>"http://www.w3.org/2000/09/xmldsig#",'id'=>'signature']);
         }
 
         // BT-23: Business process type
@@ -48,6 +65,11 @@ class UblWriter extends AbstractWriter {
         $number = $invoice->getNumber();
         if ($number !== null) {
             $xml->add('cbc:ID', $number);
+        }
+
+        $uuid = $invoice->getUuid();
+        if ($uuid !== null) {
+            $xml->add('cbc:UUID', $uuid);
         }
 
         // BT-2: Issue date
@@ -63,7 +85,7 @@ class UblWriter extends AbstractWriter {
         }
 
         // BT-3: Invoice type code
-        $xml->add('cbc:InvoiceTypeCode', (string) $invoice->getType());
+        $xml->add('cbc:InvoiceTypeCode', (string) $invoice->getType(),['name' => $invoice->getType()]);
 
         // BT-22: Notes
         foreach ($invoice->getNotes() as $note) {
@@ -312,6 +334,13 @@ class UblWriter extends AbstractWriter {
     private function addPostalAddressNode(UXML $parent, string $name, $source) {
         $xml = $parent->add($name);
 
+          // building number 
+          $buildingNumber = $source->getBuildingNumber();
+          if ($buildingNumber !== null) {
+              $xml->add('cbc:BuildingNumber', $buildingNumber);
+          }
+  
+
         // Street name
         $addressLines = $source->getAddress();
         if (isset($addressLines[0])) {
@@ -335,11 +364,12 @@ class UblWriter extends AbstractWriter {
             $xml->add('cbc:PostalZone', $postalCode);
         }
 
-        // Subdivision
-        $subdivision = $source->getSubdivision();
-        if ($subdivision !== null) {
-            $xml->add('cbc:CountrySubentity', $subdivision);
-        }
+       
+         // Subdivision
+         $subEntity = $source->getSubdivision();
+         if ($subEntity !== null) {
+             $xml->add('cbc:CountrySubentity', $subEntity);
+         }
 
         // Address line (third address line)
         if (isset($addressLines[2])) {
@@ -369,6 +399,8 @@ class UblWriter extends AbstractWriter {
         if ($electronicAddress !== null) {
             $this->addIdentifierNode($xml, 'cbc:EndpointID', $electronicAddress);
         }
+
+        
 
         // Additional identifiers
         foreach ($party->getIdentifiers() as $identifier) {
